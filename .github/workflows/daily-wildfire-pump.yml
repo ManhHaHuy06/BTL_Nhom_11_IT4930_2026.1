@@ -2,7 +2,7 @@ name: Daily US wildfire Kaggle to MinIO
 
 on:
   schedule:
-    - cron: '0 0 * * *' # 07:00 Asia/Ho_Chi_Minh
+    - cron: '0 13 * * *' # 20:00 Asia/Ho_Chi_Minh
   workflow_dispatch:
 
 permissions:

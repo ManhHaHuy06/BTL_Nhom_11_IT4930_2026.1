@@ -8,3 +8,4 @@ kaggle_data/
 .uv-cache/
 .local-test/
 .kaggle-test/
+minio-local/
