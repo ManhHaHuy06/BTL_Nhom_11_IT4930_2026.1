@@ -1,0 +1,37 @@
+name: Daily US wildfire Kaggle to MinIO
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # 07:00 Asia/Ho_Chi_Minh
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-wildfire-pump
+  cancel-in-progress: false
+
+jobs:
+  pump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Test CSV and retry behavior
+        run: python -m unittest discover -s tests -v
+      - name: Copy next CSV batch
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+          MINIO_ENDPOINT: ${{ secrets.MINIO_ENDPOINT }}
+          MINIO_ACCESS_KEY: ${{ secrets.MINIO_ACCESS_KEY }}
+          MINIO_SECRET_KEY: ${{ secrets.MINIO_SECRET_KEY }}
+        run: python daily_pump.py

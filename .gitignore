@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+kaggle.json
+kaggle_data/
+.deps/
+.uv-cache/
+.local-test/
+.kaggle-test/
