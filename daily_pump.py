@@ -10,8 +10,10 @@ import os
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 DATASET = "firecastrl/us-wildfire-dataset"
+DEFAULT_KAGGLE_ENDPOINT = f"https://www.kaggle.com/datasets/{DATASET}"
 STATE_KEY = "wildfire_pipeline/pointer.json"
 
 
@@ -20,6 +22,26 @@ def required_env(name: str) -> str:
     if not value:
         raise ValueError(f"Missing required environment variable: {name}")
     return value
+
+
+def dataset_from_endpoint(endpoint: str) -> str:
+    """Get the owner/dataset reference expected by the Kaggle API."""
+    parsed = urlparse(endpoint)
+    parts = parsed.path.strip("/").split("/")
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname not in {"kaggle.com", "www.kaggle.com"}
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.port is not None
+        or parsed.query
+        or parsed.fragment
+        or len(parts) != 3
+        or parts[0] != "datasets"
+        or not all(parts[1:])
+    ):
+        raise ValueError("KAGGLE_ENDPOINT must be a Kaggle dataset URL")
+    return f"{parts[1]}/{parts[2]}"
 
 
 def is_missing(error: Exception) -> bool:
@@ -59,9 +81,9 @@ def read_state(s3, bucket: str) -> dict | None:
 
 
 def write_state(s3, bucket: str, row: int, digest: str, source_file: str,
-                complete: bool) -> None:
+                complete: bool, dataset: str = DATASET) -> None:
     state = {
-        "dataset": DATASET,
+        "dataset": dataset,
         "source_file": source_file,
         "source_sha256": digest,
         "last_row": row,
@@ -143,6 +165,8 @@ def main() -> None:
     # Local development only; existing environment variables (GitHub secrets) win.
     load_dotenv(dotenv_path=Path(__file__).with_name(".env"), override=False)
 
+    dataset = dataset_from_endpoint(os.getenv("KAGGLE_ENDPOINT") or DEFAULT_KAGGLE_ENDPOINT)
+
     import boto3
     from botocore.client import Config
     from kaggle.api.kaggle_api_extended import KaggleApi
@@ -171,14 +195,16 @@ def main() -> None:
         work_dir = Path(temp_dir)
         download_dir = work_dir / "download"
         download_dir.mkdir()
-        print(f"Downloading Kaggle dataset {DATASET}...")
-        api.dataset_download_files(DATASET, path=str(download_dir), unzip=True)
+        print(f"Downloading Kaggle dataset {dataset}...")
+        api.dataset_download_files(dataset, path=str(download_dir), unzip=True)
         source_path = find_csv(download_dir)
         source_file = source_path.relative_to(download_dir).as_posix()
         digest = sha256_file(source_path)
 
         ensure_bucket(s3, state_bucket)
         state = read_state(s3, state_bucket)
+        if state and state.get("dataset") != dataset:
+            raise RuntimeError("Kaggle dataset changed. Review the pointer before continuing.")
         if state and (
             state["source_sha256"] != digest or state["source_file"] != source_file
         ):
@@ -208,7 +234,7 @@ def main() -> None:
             upload_batch(s3, data_bucket, key, batch_path, metadata)
         else:
             end_row = start_row
-        write_state(s3, state_bucket, end_row, digest, source_file, complete)
+        write_state(s3, state_bucket, end_row, digest, source_file, complete, dataset)
         print(f"Pointer: {end_row}; complete: {complete}")
 
 

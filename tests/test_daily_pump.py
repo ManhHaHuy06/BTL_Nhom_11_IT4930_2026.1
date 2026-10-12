@@ -42,6 +42,16 @@ class FakeS3:
 
 
 class DailyPumpTests(unittest.TestCase):
+    def test_kaggle_dataset_endpoint(self):
+        self.assertEqual(
+            daily_pump.dataset_from_endpoint(
+                "https://www.kaggle.com/datasets/firecastrl/us-wildfire-dataset"
+            ),
+            "firecastrl/us-wildfire-dataset",
+        )
+        with self.assertRaises(ValueError):
+            daily_pump.dataset_from_endpoint("https://example.com/datasets/other/dataset")
+
     def test_extract_batch_counts_multiline_csv_records(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "source.csv"
