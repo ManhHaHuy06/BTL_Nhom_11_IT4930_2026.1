@@ -1,0 +1,4 @@
+boto3>=1.36,<2
+python-dotenv>=1.0,<2
+pandas>=2.2,<4
+jupyterlab>=4,<5

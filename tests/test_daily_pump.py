@@ -1,9 +1,11 @@
 import csv
 import io
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import daily_pump
 
@@ -42,6 +44,15 @@ class FakeS3:
 
 
 class DailyPumpTests(unittest.TestCase):
+    def test_s3_endpoint_never_uses_minio_credentials(self):
+        with patch.dict(os.environ, {
+            "S3_ENDPOINT": "https://storage.example.com",
+            "MINIO_ACCESS_KEY": "local-key",
+            "MINIO_SECRET_KEY": "local-secret",
+        }, clear=True):
+            with self.assertRaisesRegex(ValueError, "S3_ACCESS_KEY"):
+                daily_pump.storage_config()
+
     def test_kaggle_dataset_endpoint(self):
         self.assertEqual(
             daily_pump.dataset_from_endpoint(

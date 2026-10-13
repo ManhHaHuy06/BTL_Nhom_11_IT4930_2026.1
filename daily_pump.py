@@ -1,4 +1,4 @@
-"""Copy at most one CSV record batch from Kaggle to MinIO per invocation."""
+"""Copy at most one CSV record batch from Kaggle to S3-compatible storage."""
 
 from __future__ import annotations
 
@@ -17,11 +17,15 @@ DEFAULT_KAGGLE_ENDPOINT = f"https://www.kaggle.com/datasets/{DATASET}"
 STATE_KEY = "wildfire_pipeline/pointer.json"
 
 
-def required_env(name: str) -> str:
-    value = os.getenv(name)
-    if not value:
-        raise ValueError(f"Missing required environment variable: {name}")
-    return value
+def storage_config() -> tuple[str, str, str]:
+    """Use one complete S3 credential set; retain legacy local MinIO support."""
+    prefix = "S3" if os.getenv("S3_ENDPOINT") else "MINIO"
+    names = tuple(f"{prefix}_{part}" for part in ("ENDPOINT", "ACCESS_KEY", "SECRET_KEY"))
+    values = tuple(os.getenv(name) for name in names)
+    for name, value in zip(names, values):
+        if not value:
+            raise ValueError(f"Missing required environment variable: {name}")
+    return values
 
 
 def dataset_from_endpoint(endpoint: str) -> str:
@@ -171,11 +175,9 @@ def main() -> None:
     from botocore.client import Config
     from kaggle.api.kaggle_api_extended import KaggleApi
 
-    endpoint = required_env("MINIO_ENDPOINT")
-    access_key = required_env("MINIO_ACCESS_KEY")
-    secret_key = required_env("MINIO_SECRET_KEY")
+    endpoint, access_key, secret_key = storage_config()
     if not endpoint.startswith(("http://", "https://")):
-        raise ValueError("MINIO_ENDPOINT must start with http:// or https://")
+        raise ValueError("S3_ENDPOINT must start with http:// or https://")
     chunk_size = int(os.getenv("CHUNK_SIZE", "1000000"))
     if chunk_size <= 0:
         raise ValueError("CHUNK_SIZE must be a positive integer")
@@ -185,8 +187,12 @@ def main() -> None:
     s3 = boto3.client(
         "s3", endpoint_url=endpoint,
         aws_access_key_id=access_key, aws_secret_access_key=secret_key,
-        config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
-        region_name="us-east-1",
+        config=Config(
+            signature_version="s3v4",
+            s3={"addressing_style": "path"},
+            request_checksum_calculation="when_required",
+        ),
+        region_name=os.getenv("S3_REGION", "us-east-1"),
     )
     api = KaggleApi()
     api.authenticate()
@@ -210,7 +216,7 @@ def main() -> None:
         ):
             raise RuntimeError(
                 "Kaggle source changed. Review the new CSV before resetting the pointer; "
-                "the old MinIO objects are preserved."
+                "the old storage objects are preserved."
             )
         start_row = state["last_row"] if state else 0
         if state and state.get("complete"):
