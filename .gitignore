@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 .venv/
 .env
+warehouse/.env
 kaggle.json
 kaggle_data/
 .deps/

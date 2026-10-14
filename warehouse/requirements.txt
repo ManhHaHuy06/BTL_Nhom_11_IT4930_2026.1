@@ -1,0 +1,4 @@
+pyspark>=3.5,<4
+mysql-connector-python>=9,<10
+python-dotenv>=1,<2
+boto3>=1.36,<2

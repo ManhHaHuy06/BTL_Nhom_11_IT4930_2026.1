@@ -40,3 +40,30 @@ FROM fact_wildfire
 GROUP BY date_key, location_key, observed_at
 HAVING COUNT(*) > 1
 LIMIT 10;
+
+-- 6. Kiểm tra batch ETL lỗi hoặc chưa hoàn thành
+SELECT status, COUNT(*) AS batch_count
+FROM etl_batch
+GROUP BY status;
+
+-- 7. Kiểm tra số dòng bị loại theo lý do
+SELECT rejection_reason, COUNT(*) AS rejected_records
+FROM etl_reject
+GROUP BY rejection_reason
+ORDER BY rejected_records DESC;
+
+-- 8. So sánh tổng dòng đã đọc với số dòng hợp lệ và bị loại
+SELECT
+    SUM(records_read) AS records_read,
+    SUM(records_accepted) AS records_accepted,
+    SUM(records_rejected) AS records_rejected,
+    SUM(CAST(records_read AS SIGNED)
+        - CAST(records_accepted AS SIGNED)
+        - CAST(records_rejected AS SIGNED)) AS unaccounted_records
+FROM etl_batch
+WHERE status = 'SUCCEEDED';
+
+-- 9. Các fact cũ hoặc dữ liệu thử không có lineage ETL
+SELECT COUNT(*) AS facts_without_source_identity
+FROM fact_wildfire
+WHERE source_record_id IS NULL;
