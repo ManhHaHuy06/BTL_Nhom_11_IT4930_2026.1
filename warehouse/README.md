@@ -29,6 +29,55 @@ ETL chỉ chạy được khi crawler đã tải object, máy chạy ETL có quy
 - Bổ sung migration chạy lại an toàn cho database đã tạo bằng schema warehouse ban đầu, file cấu hình mẫu, danh sách thư viện và hướng dẫn cài đặt/chạy/đối soát.
 - Bổ sung truy vấn SQL phân tích cơ bản và các kiểm tra chất lượng dữ liệu.
 
+## Báo cáo sơ bộ Data Warehouse cho các thành viên
+
+### Cơ sở dữ liệu hiện có những bảng nào?
+
+Theo DDL hiện tại, database `wildfire_dw` có **7 bảng với tổng cộng 79 cột**. Số này đếm cột dữ liệu, không tính index, primary key, foreign key hay các ràng buộc `CHECK`.
+
+| Bảng | Số cột | Dùng để làm gì? |
+| --- | ---: | --- |
+| `dim_date` | 5 | Lưu ngày, năm, tháng, ngày trong tháng và `date_key` dạng `YYYYMMDD`. |
+| `dim_location` | 3 | Lưu khóa vị trí và latitude/longitude duy nhất. |
+| `fact_wildfire` | 23 | Bảng phân tích chính: một dòng cho mỗi observation hợp lệ, có ngày, vị trí, nhãn cháy, 15 biến thời tiết/chỉ số và lineage nguồn. |
+| `etl_batch` | 13 | Theo dõi từng file nguồn: khoảng dòng, trạng thái, số dòng đọc/đạt/loại, số fact mới, thời gian và thông báo lỗi. |
+| `stg_wildfire` | 23 | Vùng đệm tạm cho dòng hợp lệ trước khi ghi vào dimension và fact. |
+| `stg_wildfire_reject` | 6 | Vùng đệm tạm cho dòng không hợp lệ, kèm lý do và payload để chẩn đoán. |
+| `etl_reject` | 6 | Lưu reject sau khi batch hoàn tất để nhóm tra cứu về sau. |
+| **Tổng** | **79** | **3 bảng mô hình phân tích, 1 bảng audit batch, 2 bảng staging và 1 bảng reject lâu dài.** |
+
+Trong `fact_wildfire`, 15 biến dữ liệu là `pr`, `rmax`, `rmin`, `sph`, `srad`, `tmmn`, `tmmx`, `vs`, `bi`, `fm100`, `fm1000`, `erc`, `etr`, `pet`, `vpd`. Ba cột lineage là `source_record_id`, `source_sha256`, `source_object_key`. Các cột còn lại lưu khóa fact, khóa ngày/vị trí, thời điểm và nhãn `wildfire`.
+
+**Lưu ý trạng thái:** schema và migration đã được viết trong repository. Môi trường làm việc chưa kết nối MySQL, nên chưa xác nhận các bảng đã được tạo trong một MySQL server thật hoặc đã có dữ liệu thật bên trong.
+
+### ETL chạy theo từng bước như thế nào?
+
+1. **Extract – lấy dữ liệu nguồn:** ETL liệt kê các object `wildfire/...` trong OCI bucket `raw-zone`. Mỗi object phải có tên chứa source hash và khoảng dòng, ví dụ `rows_1_1000000.csv`; metadata object phải khớp với tên file.
+2. **Kiểm tra tập batch trước khi đọc:** các file phải thuộc cùng một source hash, bắt đầu từ dòng 1 và có khoảng dòng liên tục, không chồng lấn. Thiếu batch hoặc trộn hai phiên bản nguồn làm ETL dừng trước khi ghi dữ liệu.
+3. **Đọc CSV và chuẩn hóa tên cột:** Spark đọc CSV có header; tên được trim và chuyển về chữ thường để so khớp. Thiếu cột bắt buộc hoặc có hai cột trùng tên sau chuẩn hóa thì batch bị dừng. Cột bổ sung được giữ trong fingerprint của dòng để lineage ổn định, nhưng không thêm thành cột fact.
+4. **Transform – chuẩn hóa kiểu dữ liệu:**
+   - Thử parse `datetime` theo các định dạng đã hỗ trợ; thời gian có timezone được quy về UTC, thời gian không có timezone được hiểu là UTC.
+   - Chuẩn hóa `Wildfire` thành `1` hoặc `0` từ `1/0`, `1.0/0.0`, `true/false`, `yes/no`.
+   - Parse latitude, longitude và 15 biến thời tiết thành số. Tọa độ được chuyển sang `DECIMAL(9,6)`; các biến thời tiết giữ kiểu số thực và được phép NULL.
+   - Tạo `source_record_id` ổn định từ object nguồn, nội dung dòng và thứ tự của các dòng trùng hệt nhau. Điều này giữ được số lượng duplicate trong nguồn mà vẫn giúp nạp lại an toàn.
+5. **Kiểm tra từng dòng:** dòng hợp lệ đi tiếp; dòng lỗi được gắn một hoặc nhiều lý do, ví dụ `invalid_datetime`, `latitude_out_of_range` hoặc `invalid_wildfire_label`, rồi chuyển vào luồng reject.
+6. **Load – ghi vào MySQL staging:** các dòng hợp lệ được JDBC ghi vào `stg_wildfire`; dòng reject được ghi vào `stg_wildfire_reject`. ETL so sánh số dòng Spark đọc với số dòng khai báo trong tên object; lệch số lượng làm batch thất bại.
+7. **Ghi dimension và fact trong transaction:** MySQL thêm ngày/vị trí chưa có, sau đó insert fact có `source_record_id` chưa tồn tại. Reject được chuyển sang `etl_reject`, trạng thái và số liệu batch được cập nhật, rồi staging được dọn. Nếu transaction lỗi, các thay đổi ở bước cuối rollback; nếu retry thất bại, reject của lần thành công trước vẫn còn.
+
+### Có kiểm tra ràng buộc dữ liệu không?
+
+**Có, ở ba lớp.** Cần phân biệt kiểm tra cấu trúc của cả batch với kiểm tra chất lượng từng dòng:
+
+| Lớp kiểm tra | Điều kiện đang kiểm tra | Khi không đạt |
+| --- | --- | --- |
+| File/batch nguồn | Đường dẫn và metadata có cùng hash/range; một phiên bản nguồn; khoảng dòng liên tục từ 1; số dòng CSV khớp khoảng khai báo. | Dừng batch hoặc toàn lượt trước khi nạp; kiểm tra file/pointer crawler. |
+| Từng dòng trong Transform | Ngày parse được; latitude/longitude có giá trị, chuyển được sang `DECIMAL(9,6)` và nằm trong phạm vi; nhãn chuyển được về 0/1; biến thời tiết nếu có giá trị phải parse được và hữu hạn. | Ghi dòng và lý do vào reject; các dòng hợp lệ còn lại trong batch vẫn có thể được nạp. |
+| Ràng buộc database và đối soát sau nạp | Khóa chính/duy nhất, tọa độ duy nhất, khóa ngoại fact tới date/location, nhãn 0/1, ngày và tọa độ đúng phạm vi; tổng read bằng accepted + rejected. | MySQL từ chối thao tác vi phạm; truy vấn `quality_checks.sql` giúp tìm sai lệch sau khi nạp. |
+
+Ở bản hiện tại, ETL **chưa áp đặt ngưỡng nghiệp vụ riêng cho từng biến thời tiết** (ví dụ `rmax` trong 0–100), vì cần đối chiếu tài liệu/header và đơn vị của dataset thật trước khi đặt ngưỡng để tránh loại nhầm dữ liệu. Các giá trị thời tiết rỗng/NULL được giữ là NULL; chuỗi không phải số, NaN và vô cực bị reject. Chất lượng thời tiết còn được xem qua tỷ lệ NULL và truy vấn phân tích.
+
+Sau khi load, `warehouse/sql/quality_checks.sql` kiểm tra trạng thái batch, lý do reject, cân bằng số dòng, fact thiếu source identity, tọa độ sai và chênh ngày giữa `fact_wildfire` với `dim_date`. Các truy vấn phân tích mẫu nằm trong `warehouse/sql/queries.sql`.
+
 ## 3. Cấu trúc thư mục
 
 ```text
