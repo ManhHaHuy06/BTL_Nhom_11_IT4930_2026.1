@@ -1,8 +1,6 @@
 name: Daily US wildfire Kaggle to Object Storage
 
 on:
-  schedule:
-    - cron: '0 13 * * *' # 20:00 Asia/Ho_Chi_Minh
   workflow_dispatch:
 
 permissions:

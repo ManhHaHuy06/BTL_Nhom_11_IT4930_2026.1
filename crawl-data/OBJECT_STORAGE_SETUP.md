@@ -64,18 +64,17 @@ GitHub đọc Secrets/Variables riêng, không sử dụng `.env` local.
 Script vẫn chấp nhận `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`
 trong `.env` cũ để thử MinIO local; `S3_*` được ưu tiên khi cùng tồn tại.
 
-## 4. Chạy thử và bật lịch
+## 4. Chạy thử thủ công
 
 Workflow ở `.github/workflows/daily-wildfire-pump.yml`; nó cài thư viện từ
 `crawl-data/requirements.txt`, chạy test trong `crawl-data/tests`, rồi gọi
 `python crawl-data/daily_pump.py`. Sau khi workflow được đưa vào
 nhánh mặc định `main`, chạy thử qua **Actions > Daily US wildfire Kaggle to Object
 Storage > Run workflow**. Kiểm tra file CSV trong `raw-zone` và pointer trong
-`system-state`. Lịch `0 13 * * *` là khoảng **20:00 giờ Việt Nam**; GitHub có
-thể bắt đầu trễ hơn giờ này.
+`system-state`. Lịch tự động hiện đã tắt; workflow chỉ chạy khi chọn **Run workflow**.
 
-Workflow theo lịch chỉ chạy khi file workflow nằm trên nhánh mặc định. Vì vậy,
-cần merge nhánh tính năng vào `main` sau khi đã cấu hình và thử kết nối.
+Để nút **Run workflow** xuất hiện trong GitHub Actions, file workflow cần có trên
+nhánh mặc định `main`.
 
 ## 5. Chia sẻ dữ liệu cho nhóm
 

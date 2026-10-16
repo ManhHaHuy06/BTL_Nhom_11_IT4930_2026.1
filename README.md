@@ -7,7 +7,7 @@ Pipeline tải bộ dữ liệu [US Wildfire Dataset trên Kaggle](https://www.k
 | `raw-zone` | Các file CSV trong `wildfire/source_sha256=<mã nguồn>/rows_<bắt đầu>_<kết thúc>.csv` | Đọc dữ liệu để phân tích, huấn luyện mô hình |
 | `system-state` | `wildfire_pipeline/pointer.json` | Pipeline theo dõi dòng đã tải; người phân tích không cần truy cập |
 
-Mỗi lần chạy, `crawl-data/daily_pump.py` tải tối đa 1 triệu bản ghi CSV và cập nhật con trỏ sau khi tải thành công. Lịch GitHub Actions được cấu hình lúc **20:00 giờ Việt Nam**; lịch chỉ tự chạy khi workflow nằm trên nhánh mặc định và các GitHub Secrets/Variables đã được thiết lập. Xem [hướng dẫn cấu hình OCI và pipeline](crawl-data/OBJECT_STORAGE_SETUP.md).
+Mỗi lần chạy, `crawl-data/daily_pump.py` tải tối đa 1 triệu bản ghi CSV và cập nhật con trỏ sau khi tải thành công. Lịch tự động GitHub Actions hiện đã tắt; người vận hành vẫn có thể chạy thủ công qua **Actions > Daily US wildfire Kaggle to Object Storage > Run workflow** khi cần. Xem [hướng dẫn cấu hình OCI và pipeline](crawl-data/OBJECT_STORAGE_SETUP.md).
 
 ## Cách 1: Xem hoặc tải CSV trong Oracle Cloud Console
 
